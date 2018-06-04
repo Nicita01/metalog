@@ -4,13 +4,11 @@ const EventEmitter = require('events');
 const common = require('metarhia-common');
 
 const DEFAULT_LENGTH = 16385;
-const MAX_LENGTH_MESSAGE = 10 * DEFAULT_LENGTH;
 
-function WriteBuffer(length, timeout, maxLength) {
-  this.length = length || DEFAULT_LENGTH;
+function WriteBuffer(length = DEFAULT_LENGTH, timeout) {
+  this.length = length;
   this.writeInterval = timeout || null;
   this.position = 0;
-  this.maxLength = maxLength || MAX_LENGTH_MESSAGE;
   this.buffer = Buffer.allocUnsafe(length);
   this.writeTimer = null;
 }
@@ -26,25 +24,20 @@ WriteBuffer.prototype.write = function(buffer) {
     this.writeTimer = setTimeout(() => {
       this.emit('data', null, Buffer.from(this.buffer.slice(0, this.position)));
     }, this.writeInterval);
-  } else if (messageLength <= this.length) {
-    this.emit('data', null, Buffer.from(this.buffer.slice(0, this.position)));
-    this.position = 0;
-    this.write(buffer);
-  } else if (messageLength <= this.maxLength) {
-    this.emit('data', null, Buffer.from(this.buffer.slice(0, this.position)));
-    this.position = 0;
-    let cntBytesTransmit = this.length;
-    for (; cntBytesTransmit <= messageLength; cntBytesTransmit += this.length) {
-      this.emit('data', null, buffer.slice(
-        cntBytesTransmit - this.length, cntBytesTransmit
-      ));
-    }
-    this.write(buffer.slice(cntBytesTransmit - this.length, messageLength));
   } else {
-    this.emit('data', new Error('message is to large'));
+    clearTimeout(this.writeTimer);
+    this.writeTimer = setTimeout(() => {
+      this.emit('data', null, Buffer.from(this.buffer.slice(0, this.position)));
+    }, this.writeInterval);
+    this.emit('data', null, Buffer.concat([
+      this.buffer.slice(0, this.position),
+      buffer
+    ], this.position + messageLength));
+    this.position = 0;
   }
 };
 
-WriteBuffer.prototype.drop = function(start = 0, end = this.position) {
+WriteBuffer.prototype.drain = function(start = 0, end = this.position) {
   this.emit('data', null, Buffer.from(this.buffer.slice(start, end)));
+  this.position = 0;
 };
